@@ -19,6 +19,7 @@ s3_uri_base="s3://${S3_BUCKET}/${S3_PREFIX}/${POSTGRES_DATABASE}_${timestamp}.du
 
 if [ -n "$PASSPHRASE" ]; then
   echo "Encrypting backup..."
+  rm -f db.dump.gpg
   gpg --symmetric --batch --passphrase "$PASSPHRASE" db.dump
   rm db.dump
   local_file="db.dump.gpg"
@@ -33,6 +34,26 @@ aws $aws_args s3 cp "$local_file" "$s3_uri"
 rm "$local_file"
 
 echo "Backup complete."
+
+if [ -n "${DISCORD_WEBHOOK_URL:-}" ]; then
+  echo "Sending notification to Discord..."
+  export timestamp s3_uri
+  python3 - <<'PY'
+import json, os, urllib.request
+content = "[**backup**] of {db} database completed on {ts}. URL: {uri}".format(
+    db=os.environ["POSTGRES_DATABASE"],
+    ts=os.environ["timestamp"],
+    uri=os.environ["s3_uri"],
+)
+req = urllib.request.Request(
+    os.environ["DISCORD_WEBHOOK_URL"],
+    data=json.dumps({"content": content}).encode(),
+    headers={"Content-Type": "application/json", "User-Agent": "postgres-backup-s3"},
+)
+urllib.request.urlopen(req)
+PY
+  echo "Notification sent."
+fi
 
 if [ -n "$BACKUP_KEEP_DAYS" ]; then
   sec=$((86400*BACKUP_KEEP_DAYS))

@@ -12,7 +12,7 @@ services:
       POSTGRES_PASSWORD: password
 
   backup:
-    image: jnettome/postgres-backup-s3:16
+    image: ghcr.io/jnettome/postgres-backup-s3:16
     environment:
       SCHEDULE: '@weekly'     # optional
       BACKUP_KEEP_DAYS: 7     # optional
@@ -30,6 +30,7 @@ services:
 ```
 
 - Images are tagged by the major PostgreSQL version supported: `12`, `13`, `14`, `15`, `16`, `17`, or `18`.
+- The same tags are published to `ghcr.io/jnettome/postgres-backup-s3`. Docker Hub `jnettome/postgres-backup-s3` is also updated when `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are set on the repository.
 - `pg_dump` refuses a server newer than its own major version. Use the tag that matches the server, or a newer one. A Postgres 16 server needs `:16` or newer; `:13` and `:15` abort.
 - The `SCHEDULE` variable determines backup frequency. See go-cron schedules documentation [here](http://godoc.org/github.com/robfig/cron#hdr-Predefined_schedules). Omit to run the backup immediately and then exit.
 - If `PASSPHRASE` is provided, the backup will be encrypted using GPG.

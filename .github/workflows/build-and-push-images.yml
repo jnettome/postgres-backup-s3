@@ -7,8 +7,12 @@ on:
 jobs:
   build-and-push-image:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     strategy:
+      fail-fast: false
       matrix:
         # Newest Alpine that still packages that client. The tag is the
         # pg_dump major: it must be >= the server major.
@@ -31,18 +35,51 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Log in to DockerHub
+      - name: Log in to the GitHub Container Registry
         uses: docker/login-action@v4
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The repo has no Docker Hub secrets today. Skip that registry instead
+      # of failing the build; publish there once the secrets exist.
+      - name: Log in to Docker Hub
+        id: dockerhub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Docker Hub credentials are not set. Publishing to GHCR only."
+            exit 0
+          fi
+          echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Set image tags
+        id: tags
+        run: |
+          repo=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          {
+            echo "list<<EOF"
+            echo "ghcr.io/${repo}:${{ matrix.postgres }}"
+            if [ "${{ steps.dockerhub.outputs.configured }}" = "true" ]; then
+              echo "${repo}:${{ matrix.postgres }}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:
           context: .
           push: true
-          tags: ${{ github.repository }}:${{ matrix.postgres }}
+          tags: ${{ steps.tags.outputs.list }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=Periodic PostgreSQL backups to S3
           build-args: |
             ALPINE_VERSION=${{ matrix.alpine }}
             PG_CLIENT_PACKAGE=${{ matrix.client }}
